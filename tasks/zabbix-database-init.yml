@@ -1,0 +1,27 @@
+---
+- name: ensure mysqld is running
+  service: name=mysqld state=started
+  
+- name: initialize zabbix database
+  mysql_db: name=zabbix state=import target=/usr/share/doc/zabbix-server-mysql-{{ c6zbx_zbx_version }}/create/{{ item }}
+  with_items:
+    - schema.sql
+    - images.sql
+    - data.sql
+  
+- name: copy sql scripts for database partitioning
+  copy: src=tmp/{{ item }} dest=/tmp
+  with_items:
+    - alter_table_indexes.sql
+    - stored_procedures.sql
+    - event_schedule.sql
+
+- name: alter table indexes
+  mysql_db: name=zabbix state=import target=/tmp/alter_table_indexes.sql
+ 
+- name: add stored procedures for partitioning 
+  mysql_db: name=zabbix state=import target=/tmp/stored_procedures.sql
+  
+- name: add partitioning event to schedule
+  mysql_db: name=zabbix state=import target=/tmp/event_schedule.sql
+  

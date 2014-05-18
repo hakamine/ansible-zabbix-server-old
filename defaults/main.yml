@@ -1,0 +1,13 @@
+---
+c6zbx_alertscripts_smtpgmail_account: yourusername@gmail.com
+c6zbx_alertscripts_smtpgmail_password: yourpassword
+c6zbx_alertscripts_smtpgmail_sendername: User
+
+c6zbx_zbx_version: 2.2.3
+c6zbx_zbx_ver_maj_min: 2.2
+
+c6zbx_zbx_dbuser: zabbix
+c6zbx_zbx_dbpasswd: zabbix
+
+c6zbx_mysql_innodb_buffer_size: 1073741824
+
