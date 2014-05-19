@@ -10,7 +10,7 @@ partitioning scheduled event. This is adapted from the code in
 
 It also adds an alert script to be able to use gmail for zabbix 
 notifications. This is adapted from the code [here] 
-https://gist.github.com/superdaigo/3754055
+(https://gist.github.com/superdaigo/3754055)
 
 It additionally sets up the EPEL repository and install htop and tmux
 (utilities that I find useful)
