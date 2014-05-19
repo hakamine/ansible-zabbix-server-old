@@ -11,7 +11,7 @@ galaxy_info:
   # - Apache
   # - CC-BY
   license: license (GPLv2, CC-BY, etc)
-  min_ansible_version: 1.2
+  min_ansible_version: 1.5
   #
   # Below are all platforms currently available. Just uncomment
   # the ones that apply to your role. If you don't see your 
@@ -19,7 +19,7 @@ galaxy_info:
   #
   platforms:
   - name: EL
-  #  versions:
+    versions:
   #  - all
   #  - 5
     - 6
