@@ -1,0 +1,93 @@
+---
+- name: install libselinux-python 
+  yum: name=libselinux-python state=present
+
+- name: install MySQL-python 
+  yum: name=MySQL-python state=present
+
+- name: change selinux mode to permissive
+  selinux: policy=targeted state=permissive
+
+- name: disable iptables
+  service: name=iptables enabled=no state=stopped
+
+- name: install ntp 
+  yum: name=ntp state=present
+  tags: ntp
+
+- name: Start and enable ntp service
+  service: name=ntpd state=started enabled=true
+  tags: ntp
+
+- name: install epel repo rpm key
+  rpm_key: key=http://dl.fedoraproject.org/pub/epel/RPM-GPG-KEY-EPEL-6 state=present
+
+- name: setup epel repo
+  copy: src=etc/yum.repos.d/epel.repo dest=/etc/yum.repos.d/epel.repo
+
+- name: install htop
+  yum: name=htop state=present
+
+- name: install tmux
+  yum: name=tmux state=present
+
+- name: install mysql server
+  yum: name=mysql-server state=present
+
+- name: enable mysql server
+  service: name=mysqld enabled=yes state=started
+
+- name: set innodb_buffer_size in /etc/my.cnf 
+  ini_file: dest=/etc/my.cnf backup=yes section=mysqld option=innodb_buffer_pool_size value={{ c6zbx_mysql_innodb_buffer_size }}
+  notify: restart mysqld
+
+- name: enable event_scheduler in /etc/my.cnf
+  ini_file: dest=/etc/my.cnf backup=yes section=mysqld option=event_scheduler value=1
+  notify: restart mysqld
+
+- name: install zabbix rpm key
+  rpm_key: key=http://repo.zabbix.com/zabbix-official-repo.key state=present
+
+- name: setup zabbix repo
+  template: src=etc/yum.repos.d/zabbix.repo.j2 dest=/etc/yum.repos.d/zabbix.repo
+  
+- name: install zabbix-server-mysql 
+  yum: name=zabbix-server-mysql-{{ c6zbx_zbx_version }} state=present
+
+- name: install zabbix-web-mysql
+  yum: name=zabbix-web-mysql-{{ c6zbx_zbx_version }} state=present
+
+- name: install zabbix-agent
+  yum: name=zabbix-agent-{{ c6zbx_zbx_version }} state=present
+
+- name: create database zabbix
+  mysql_db: name=zabbix state=present encoding=utf8 collation=utf8_bin
+  register: createdb_result
+
+- include: zabbix-database-init.yml
+  when: createdb_result|changed
+
+- name: create mysql user 
+  mysql_user: name={{ c6zbx_zbx_dbuser }} password={{ c6zbx_zbx_dbpasswd }} priv=zabbix.*:ALL state=present
+
+- name: modify /etc/zabbix/zabbix_server.conf
+  template: src=etc/zabbix/zabbix_server.conf.j2 dest=/etc/zabbix/zabbix_server.conf backup=yes
+  notify: restart zabbix server
+
+- name: modify /etc/httpd/conf.d/zabbix.conf
+  template: src=etc/httpd/conf.d/zabbix.conf.j2 dest=/etc/httpd/conf.d/zabbix.conf backup=yes
+  notify: restart httpd
+
+- name: add e-mail sending script to /usr/lib/zabbix/alertscripts
+  template: src=usr/lib/zabbix/alertscripts/smtp-gmail.j2 dest=/usr/lib/zabbix/alertscripts/smtp-gmail mode=755
+
+- name: enable httpd
+  service: name=httpd enabled=yes
+  
+- name: enable zabbix server
+  service: name=zabbix-server enabled=yes
+
+- name: enable and start zabbix agent
+  service: name=zabbix-agent enabled=yes state=started
+  
+  

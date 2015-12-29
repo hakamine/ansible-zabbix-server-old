@@ -1,5 +1,5 @@
 DELIMITER $$
-CREATE PROCEDURE `partition_create`(SCHEMANAME VARCHAR(64), TABLENAME VARCHAR(64), PARTITIONNAME VARCHAR(64), CLOCK INT)
+CREATE PROCEDURE `partition_create`(SCHEMANAME varchar(64), TABLENAME varchar(64), PARTITIONNAME varchar(64), CLOCK int)
 BEGIN
         /*
            SCHEMANAME = The DB schema in which to make changes
@@ -9,12 +9,12 @@ BEGIN
         /*
            Verify that the partition does not already exist
         */
- 
+
         DECLARE RETROWS INT;
         SELECT COUNT(1) INTO RETROWS
         FROM information_schema.partitions
-        WHERE table_schema = SCHEMANAME AND TABLE_NAME = TABLENAME AND partition_name = PARTITIONNAME;
- 
+        WHERE table_schema = SCHEMANAME AND table_name = TABLENAME AND partition_description >= CLOCK;
+
         IF RETROWS = 0 THEN
                 /*
                    1. Print a message indicating that a partition was created.
@@ -22,8 +22,8 @@ BEGIN
                    3. Execute the SQL from #2.
                 */
                 SELECT CONCAT( "partition_create(", SCHEMANAME, ",", TABLENAME, ",", PARTITIONNAME, ",", CLOCK, ")" ) AS msg;
-                SET @SQL = CONCAT( 'ALTER TABLE ', SCHEMANAME, '.', TABLENAME, ' ADD PARTITION (PARTITION ', PARTITIONNAME, ' VALUES LESS THAN (', CLOCK, '));' );
-                PREPARE STMT FROM @SQL;
+                SET @sql = CONCAT( 'ALTER TABLE ', SCHEMANAME, '.', TABLENAME, ' ADD PARTITION (PARTITION ', PARTITIONNAME, ' VALUES LESS THAN (', CLOCK, '));' );
+                PREPARE STMT FROM @sql;
                 EXECUTE STMT;
                 DEALLOCATE PREPARE STMT;
         END IF;
@@ -40,7 +40,7 @@ BEGIN
         */
         DECLARE done INT DEFAULT FALSE;
         DECLARE drop_part_name VARCHAR(16);
- 
+
         /*
            Get a list of all the partitions that are older than the date
            in DELETE_BELOW_PARTITION_DATE.  All partitions are prefixed with
@@ -49,9 +49,9 @@ BEGIN
         DECLARE myCursor CURSOR FOR
                 SELECT partition_name
                 FROM information_schema.partitions
-                WHERE table_schema = SCHEMANAME AND TABLE_NAME = TABLENAME AND CAST(SUBSTRING(partition_name FROM 2) AS UNSIGNED) < DELETE_BELOW_PARTITION_DATE;
+                WHERE table_schema = SCHEMANAME AND table_name = TABLENAME AND CAST(SUBSTRING(partition_name FROM 2) AS UNSIGNED) < DELETE_BELOW_PARTITION_DATE;
         DECLARE CONTINUE HANDLER FOR NOT FOUND SET done = TRUE;
- 
+
         /*
            Create the basics for when we need to drop the partition.  Also, create
            @drop_partitions to hold a comma-delimited list of all partitions that
@@ -59,7 +59,7 @@ BEGIN
         */
         SET @alter_header = CONCAT("ALTER TABLE ", SCHEMANAME, ".", TABLENAME, " DROP PARTITION ");
         SET @drop_partitions = "";
- 
+
         /*
            Start looping through all the partitions that are too old.
         */
@@ -81,7 +81,7 @@ BEGIN
                 PREPARE STMT FROM @full_sql;
                 EXECUTE STMT;
                 DEALLOCATE PREPARE STMT;
- 
+
                 SELECT CONCAT(SCHEMANAME, ".", TABLENAME) AS `table`, @drop_partitions AS `partitions_deleted`;
         ELSE
                 /*
@@ -98,29 +98,31 @@ CREATE PROCEDURE `partition_maintenance`(SCHEMA_NAME VARCHAR(32), TABLE_NAME VAR
 BEGIN
         DECLARE OLDER_THAN_PARTITION_DATE VARCHAR(16);
         DECLARE PARTITION_NAME VARCHAR(16);
+        DECLARE OLD_PARTITION_NAME VARCHAR(16);
         DECLARE LESS_THAN_TIMESTAMP INT;
         DECLARE CUR_TIME INT;
- 
+
         CALL partition_verify(SCHEMA_NAME, TABLE_NAME, HOURLY_INTERVAL);
         SET CUR_TIME = UNIX_TIMESTAMP(DATE_FORMAT(NOW(), '%Y-%m-%d 00:00:00'));
-        IF DATE(NOW()) = '2014-04-01' THEN
-                SET CUR_TIME = UNIX_TIMESTAMP(DATE_FORMAT(DATE_ADD(NOW(), INTERVAL 1 DAY), '%Y-%m-%d 00:00:00'));
-        END IF;
+
         SET @__interval = 1;
         create_loop: LOOP
                 IF @__interval > CREATE_NEXT_INTERVALS THEN
                         LEAVE create_loop;
                 END IF;
- 
+
                 SET LESS_THAN_TIMESTAMP = CUR_TIME + (HOURLY_INTERVAL * @__interval * 3600);
                 SET PARTITION_NAME = FROM_UNIXTIME(CUR_TIME + HOURLY_INTERVAL * (@__interval - 1) * 3600, 'p%Y%m%d%H00');
-                CALL partition_create(SCHEMA_NAME, TABLE_NAME, PARTITION_NAME, LESS_THAN_TIMESTAMP);
+                IF(PARTITION_NAME != OLD_PARTITION_NAME) THEN
+			CALL partition_create(SCHEMA_NAME, TABLE_NAME, PARTITION_NAME, LESS_THAN_TIMESTAMP);
+		END IF;
                 SET @__interval=@__interval+1;
+                SET OLD_PARTITION_NAME = PARTITION_NAME;
         END LOOP;
- 
+
         SET OLDER_THAN_PARTITION_DATE=DATE_FORMAT(DATE_SUB(NOW(), INTERVAL KEEP_DATA_DAYS DAY), '%Y%m%d0000');
         CALL partition_drop(SCHEMA_NAME, TABLE_NAME, OLDER_THAN_PARTITION_DATE);
- 
+
 END$$
 DELIMITER ;
 
@@ -130,14 +132,14 @@ BEGIN
         DECLARE PARTITION_NAME VARCHAR(16);
         DECLARE RETROWS INT(11);
         DECLARE FUTURE_TIMESTAMP TIMESTAMP;
- 
+
         /*
          * Check if any partitions exist for the given SCHEMANAME.TABLENAME.
          */
         SELECT COUNT(1) INTO RETROWS
         FROM information_schema.partitions
-        WHERE table_schema = SCHEMANAME AND TABLE_NAME = TABLENAME AND partition_name IS NULL;
- 
+        WHERE table_schema = SCHEMANAME AND table_name = TABLENAME AND partition_name IS NULL;
+
         /*
          * If partitions do not exist, go ahead and partition the table
          */
@@ -150,11 +152,11 @@ BEGIN
                  */
                 SET FUTURE_TIMESTAMP = TIMESTAMPADD(HOUR, HOURLYINTERVAL, CONCAT(CURDATE(), " ", '00:00:00'));
                 SET PARTITION_NAME = DATE_FORMAT(CURDATE(), 'p%Y%m%d%H00');
- 
+
                 -- Create the partitioning query
                 SET @__PARTITION_SQL = CONCAT("ALTER TABLE ", SCHEMANAME, ".", TABLENAME, " PARTITION BY RANGE(`clock`)");
                 SET @__PARTITION_SQL = CONCAT(@__PARTITION_SQL, "(PARTITION ", PARTITION_NAME, " VALUES LESS THAN (", UNIX_TIMESTAMP(FUTURE_TIMESTAMP), "));");
- 
+
                 -- Run the partitioning query
                 PREPARE STMT FROM @__PARTITION_SQL;
                 EXECUTE STMT;
@@ -166,13 +168,12 @@ DELIMITER ;
 DELIMITER $$
 CREATE PROCEDURE `partition_maintenance_all`(SCHEMA_NAME VARCHAR(32))
 BEGIN
-                CALL partition_maintenance(SCHEMA_NAME, 'history', 90, 24, 14);
-                CALL partition_maintenance(SCHEMA_NAME, 'history_log', 90, 24, 14);
-                CALL partition_maintenance(SCHEMA_NAME, 'history_str', 90, 24, 14);
-                CALL partition_maintenance(SCHEMA_NAME, 'history_text', 90, 24, 14);
-                CALL partition_maintenance(SCHEMA_NAME, 'history_uint', 90, 24, 14);
+                CALL partition_maintenance(SCHEMA_NAME, 'history', 28, 24, 14);
+                CALL partition_maintenance(SCHEMA_NAME, 'history_log', 28, 24, 14);
+                CALL partition_maintenance(SCHEMA_NAME, 'history_str', 28, 24, 14);
+                CALL partition_maintenance(SCHEMA_NAME, 'history_text', 28, 24, 14);
+                CALL partition_maintenance(SCHEMA_NAME, 'history_uint', 28, 24, 14);
                 CALL partition_maintenance(SCHEMA_NAME, 'trends', 730, 24, 14);
                 CALL partition_maintenance(SCHEMA_NAME, 'trends_uint', 730, 24, 14);
 END$$
 DELIMITER ;
-
